@@ -1,0 +1,60 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveGeneric #-}
+
+import Network.HTTP.Simple (httpBS, getResponseBody, parseRequest)
+import qualified Data.Aeson as A
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import qualified Graphics.Rendering.Chart.Easy as Chart
+import Graphics.Rendering.Chart.Backend.Cairo
+import GHC.Generics
+import Data.ByteString.Lazy as BL
+import qualified Statistics.Sample as Stats
+import Statistics.Distribution
+import Data.Vector as V
+import Data.Foldable (for_)
+import Text.Printf (printf)
+
+data CoinData = CoinData {
+    prices :: [[Double]]
+} deriving Show
+
+instance A.FromJSON CoinData where
+    parseJSON = A.withObject "CoinData" $ \v -> CoinData
+        <$> v A..: "prices"
+
+main = do
+    putStrLn "Enter the number of days (30, 60, or 90):"
+    days <- getLine
+    putStrLn "Enter the coin to fetch data for (bitcoin, ethereum, or cardano):"
+    coin <- getLine
+    let requestUrl = "https://api.coingecko.com/api/v3/coins/" Prelude.++ coin Prelude.++ "/market_chart?vs_currency=usd&days=" Prelude.++ days
+    request <- parseRequest requestUrl
+    response <- httpBS request
+    let btcData = A.decode (BL.fromStrict $ getResponseBody response) :: Maybe CoinData
+    case btcData of
+        Nothing -> putStrLn "Failed to fetch data from CoinGecko API."
+        Just coinData -> do
+            let priceData = prices coinData
+            let timeSeries = [(posixSecondsToUTCTime $ realToFrac (timestamp / 1000), price) | [timestamp, price] <- priceData]
+            let pricesVector = V.fromList [price | (_, price) <- timeSeries]
+
+            -- Calculate and print mean and standard deviation
+            let meanPrice = Stats.mean pricesVector
+            let stdDevPrice = Stats.stdDev pricesVector
+            putStrLn $ "Mean Price: " Prelude.++ printf "%.4f" meanPrice
+            putStrLn $ "Standard Deviation of Price: " Prelude.++ printf "%.4f" stdDevPrice
+
+            -- Calculate and print Sharpe ratio
+            let returns = V.zipWith (-) (V.tail pricesVector) pricesVector
+            let meanReturn = Stats.mean returns
+            let stdDevReturn = Stats.stdDev returns
+            let sharpeRatio = meanReturn / stdDevReturn
+            putStrLn $ "Sharpe Ratio: " Prelude.++ printf "%.4f" sharpeRatio
+
+            -- Calculate and print VaR
+            -- let var95 = quantile 0.05 (fromIntegral returns)
+            -- putStrLn $ "5% Value at Risk (VaR): " print var95
+
+            toFile Chart.def "bitcoin_price_chart.png" $ do
+                Chart.layout_title Chart..= "Bitcoin Price Chart"
+                Chart.plot (Chart.line "BTC Price" [timeSeries])
