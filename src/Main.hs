@@ -25,6 +25,8 @@ instance A.FromJSON CoinData where
 main = do
     putStrLn ""
     putStrLn "Portfolio Optimization with Two Assets"
+    putStrLn "Yevonnael Andrew"
+    putStrLn ""
     putStrLn "Enter the number of days (30, 60, or 90):"
     days <- getLine
     putStrLn ""
